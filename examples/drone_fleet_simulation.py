@@ -27,6 +27,10 @@ sys.path.insert(0, '.')
 from lifecore import LifeCore, Need, Goal, SharedResource
 from lifecore.config import load_system
 from lifecore.law import LawEnforcer
+from lifecore.event import (
+    EventBus, Event, Alert, EventType,
+    battery_low_alert, delivery_complete, equipment_failure, demand_spike
+)
 
 
 # === CONFIGURATION SIMULATION ===
@@ -98,11 +102,39 @@ class DroneFleetSimulation:
             'total_distance': 0.0,
             'total_energy': 0.0,
             'avg_delivery_time': 0.0,
-            'violations': 0
+            'violations': 0,
+            'alerts': 0,
+            'failures': 0
         }
+        
+        # Event Bus for async events
+        self.event_bus = EventBus()
+        self._setup_event_handlers()
         
         self._init_drones()
         self._generate_orders()
+    
+    def _setup_event_handlers(self):
+        """Configure event handlers."""
+        # Handle battery alerts
+        def on_battery_alert(event: Alert):
+            self.stats['alerts'] += 1
+            drone_id = int(event.source.split('_')[1]) if 'drone_' in event.source else -1
+            if drone_id >= 0 and drone_id in self.drones:
+                drone = self.drones[drone_id]
+                if drone.status == "delivering":
+                    # Force return if critically low
+                    if event.severity > 0.7:
+                        drone.status = "returning"
+                        drone.target_x = ZONE_HUBS[drone.zone][0]
+                        drone.target_y = ZONE_HUBS[drone.zone][1]
+        
+        # Handle equipment failures
+        def on_failure(event: Event):
+            self.stats['failures'] += 1
+        
+        self.event_bus.subscribe_type(EventType.ALERT, on_battery_alert)
+        self.event_bus.subscribe_type(EventType.FAILURE, on_failure)
     
     def _init_drones(self):
         """Initialise les drones par zone."""
@@ -203,7 +235,17 @@ class DroneFleetSimulation:
             elif drone.status == "idle":
                 # Vérifier si batterie faible
                 if drone.battery < 25:
+                    self.event_bus.emit(battery_low_alert(f"drone_{drone.id}", drone.battery / 100))
                     drone.status = "charging"
+            
+            # Random equipment failure (0.01% chance per step)
+            if np.random.random() < 0.0001 and drone.status == "delivering":
+                self.event_bus.emit(equipment_failure(
+                    f"drone_{drone.id}", "motor", 
+                    affected_capacity=0.5,
+                    estimated_recovery=30.0
+                ))
+                drone.status = "returning"
     
     def _update_delivering(self, drone: DroneState):
         """Drone en livraison."""
@@ -225,6 +267,11 @@ class DroneFleetSimulation:
             drone.current_order = None
             drone.status = "returning"
             self.stats['deliveries'] += 1
+            
+            # Emit delivery complete event
+            self.event_bus.emit(delivery_complete(
+                f"drone_{drone.id}", order.id, self.step
+            ))
         else:
             # Avancer vers destination
             speed = min(0.3, dist)  # km/min (18 km/h max)
@@ -321,6 +368,13 @@ class DroneFleetSimulation:
         print(f"  Commandes échouées: {failed} ({100*failed/total:.1f}%)")
         print(f"  Distance totale: {total_distance:.1f} km")
         print(f"  Distance moyenne/livraison: {total_distance/max(1,delivered):.2f} km")
+        print()
+        
+        # Event stats
+        print("  Événements:")
+        print(f"    Alertes: {self.stats['alerts']}")
+        print(f"    Pannes: {self.stats['failures']}")
+        print(f"    Historique: {len(self.event_bus.get_history())} événements totaux")
         print()
         
         # Stats par zone

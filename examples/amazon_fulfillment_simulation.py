@@ -28,6 +28,10 @@ sys.path.insert(0, '.')
 
 from lifecore import LifeCore, Need, Goal, SharedResource
 from lifecore.config import load_system
+from lifecore.event import (
+    EventBus, Event, Alert, EventType,
+    battery_low_alert, delivery_complete, equipment_failure, capacity_warning
+)
 
 
 # === CONFIGURATION SIMULATION ===
@@ -158,11 +162,30 @@ class AmazonFulfillmentSimulation:
             'total_robot_distance': 0.0,
             'avg_fulfillment_time': 0.0,
             'robot_utilization': 0.0,
-            'station_utilization': 0.0
+            'station_utilization': 0.0,
+            'alerts': 0,
+            'failures': 0
         }
+        
+        # Event Bus for async events
+        self.event_bus = EventBus()
+        self._setup_event_handlers()
         
         self._init_infrastructure()
         self._generate_orders()
+    
+    def _setup_event_handlers(self):
+        """Configure event handlers."""
+        # Handle capacity warnings - could trigger more packing stations
+        def on_capacity_warning(event: Event):
+            self.stats['alerts'] += 1
+        
+        # Handle failures
+        def on_failure(event: Event):
+            self.stats['failures'] += 1
+        
+        self.event_bus.subscribe_type(EventType.WARNING, on_capacity_warning)
+        self.event_bus.subscribe_type(EventType.FAILURE, on_failure)
     
     def _init_infrastructure(self):
         """Initialise robots, stations, docks."""
@@ -300,6 +323,7 @@ class AmazonFulfillmentSimulation:
                 self._update_charging_robot(robot)
             elif robot.status == "idle":
                 if robot.battery < 20:
+                    self.event_bus.emit(battery_low_alert(f"robot_{robot.id}", robot.battery / 100))
                     robot.status = "charging"
     
     def _update_picking_robot(self, robot: KivaRobot):
@@ -420,6 +444,19 @@ class AmazonFulfillmentSimulation:
                 order.completion_time = self.step
                 dock.orders_shipped += 1
                 self.stats['orders_shipped'] += 1
+                
+                # Emit shipment event
+                self.event_bus.emit(delivery_complete(
+                    f"dock_{dock.id}", order.id, self.step
+                ))
+        
+        # Check conveyor congestion
+        if len(self.conveyor_queue) > 50:
+            self.event_bus.emit(capacity_warning(
+                "conveyor_system",
+                current=float(len(self.conveyor_queue)),
+                max_capacity=100.0
+            ))
     
     def _update_deadlines(self):
         """Vérifie les deadlines."""
