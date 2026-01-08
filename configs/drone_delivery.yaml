@@ -1,0 +1,99 @@
+# =====================================
+# DRONE DELIVERY SERVICE - Configuration
+# =====================================
+# 
+# Système de livraison par drone avec contraintes.
+# Chargeable via: load_system("configs/drone_delivery.yaml")
+
+name: "Drone Delivery Service"
+dims: 7  # [x, y, z, vx, vy, vz, payload]
+
+# Noms des dimensions pour lisibilité
+dim_names:
+  - "x"
+  - "y" 
+  - "z"
+  - "vx"
+  - "vy"
+  - "vz"
+  - "payload"
+
+# === RESSOURCES PARTAGÉES ===
+resources:
+  - name: battery_pool
+    capacity: 1000.0  # kWh total
+
+  - name: airspace
+    capacity: 100  # Créneaux simultanés
+
+# === LOIS / CONTRAINTES ===
+laws:
+  # Limite de vitesse
+  - type: speed_limit
+    max: 15.0
+    dims: [3, 4, 5]  # vx, vy, vz
+
+  # Zone de vol autorisée
+  - type: boundary
+    min: [0, 0, 10]      # Altitude min 10m
+    max: [100, 100, 200]  # Zone 100km x 100km
+
+  # Zone interdite: aéroport
+  - type: no_fly_zone
+    zones:
+      - center: [0, 0, 50]
+        radius: 5.0
+      - center: [50, 50, 50]
+        radius: 3.0
+
+  # Anti-collision
+  - type: collision
+    min_distance: 10.0
+
+  # Embouteillage aérien (zone dense)
+  - type: traffic_jam
+    zones:
+      - center: [25, 25, 30]
+        radius: 10.0
+        slowdown: 0.5
+
+# === HIÉRARCHIE ===
+hierarchy:
+  name: fleet_controller
+  resources: [battery_pool, airspace]
+  
+  children:
+    - name: drone
+      count: 5
+      domain: [0, 1, 2, 3, 4, 5, 6]
+      resources: [battery_pool, airspace]
+      resource_priority:
+        battery_pool: 5.0
+        airspace: 5.0
+      
+      children:
+        - name: navigation
+          domain: [0, 1, 2]  # Position
+          needs:
+            - type: homeostatic
+              name: stay_in_zone
+              dim: 2  # altitude
+              target: 50.0
+              priority: 1.0
+
+        - name: propulsion
+          domain: [3, 4, 5]  # Velocity
+          capabilities:
+            - name: motor_speed
+              dims: [3, 4, 5]
+              max: 15.0
+              efficiency: 0.95
+
+        - name: cargo
+          domain: [6]  # Payload
+          needs:
+            - type: homeostatic
+              name: deliver_payload
+              dim: 6
+              target: 0.0  # Livré = 0
+              priority: 5.0

@@ -1,0 +1,97 @@
+# =====================================
+# AUTONOMOUS CAR - Configuration
+# =====================================
+#
+# Voiture autonome avec contraintes routières.
+# Chargeable via: load_system("configs/autonomous_car.yaml")
+
+name: "Autonomous Car"
+dims: 6  # [x, y, vx, vy, steering, throttle]
+
+dim_names:
+  - "x"
+  - "y"
+  - "vx"
+  - "vy"
+  - "steering"
+  - "throttle"
+
+# === RESSOURCES ===
+resources:
+  - name: fuel
+    capacity: 50.0  # Litres
+
+  - name: road_capacity
+    capacity: 100  # Véhicules sur la route
+
+# === LOIS / CONTRAINTES ===
+laws:
+  # Limite de vitesse
+  - type: speed_limit
+    max: 130.0  # km/h autoroute
+    dims: [2, 3]
+
+  # Zone de circulation
+  - type: boundary
+    min: [0, 0, 0, 0, -1, 0]
+    max: [1000, 1000, 200, 200, 1, 1]
+
+  # Feu rouge
+  - type: traffic_light
+    position: [100, 50, 0]
+    dims: [2, 3]
+    cycle: 60.0  # 30s vert, 30s rouge
+
+  # Mur (bord de route)
+  - type: wall
+    position: [0, 0, 0]
+    normal: [0, 1, 0]  # Bloque vers Y négatif
+    dims: [0, 1]
+
+  # Embouteillage
+  - type: traffic_jam
+    zones:
+      - center: [200, 100]
+        radius: 50.0
+        slowdown: 0.2
+
+# === HIÉRARCHIE ===
+hierarchy:
+  name: car_controller
+  resources: [fuel, road_capacity]
+  
+  goals:
+    - name: reach_destination
+      target: [800, 500, 0, 0, 0, 0]
+      priority: 10.0
+      threshold: 10.0
+  
+  children:
+    - name: drive_system
+      domain: [2, 3, 4, 5]  # Contrôle moteur
+      
+      children:
+        - name: motor
+          domain: [5]  # Throttle
+          capabilities:
+            - name: acceleration
+              dims: [5]
+              max: 1.0
+              efficiency: 0.9
+
+        - name: steering
+          domain: [4]
+          capabilities:
+            - name: turn_rate
+              dims: [4]
+              max: 0.5
+              efficiency: 1.0
+
+    - name: safety_system
+      domain: [0, 1, 2, 3]  # Position et vitesse
+      needs:
+        - type: homeostatic
+          name: maintain_distance
+          dim: 0
+          target: 50.0  # Distance de sécurité
+          priority: 8.0
