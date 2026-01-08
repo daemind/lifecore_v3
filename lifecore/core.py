@@ -95,9 +95,6 @@ class LifeCore:
         # Resources: ressources partagées disponibles
         self.resources: Dict[str, Any] = {}
         
-        # Strategy: planification pour atteindre les goals
-        self.strategy = None  # Sera défini avec set_strategy()
-        
         # Seuils adaptatifs
         self.similarity_threshold = 0.7
         self.min_quality = 0.5
@@ -112,70 +109,6 @@ class LifeCore:
     def get_resource(self, name: str):
         """Récupère une ressource par son nom."""
         return self.resources.get(name)
-    
-    # === STRATEGY ===
-    
-    def set_strategy(self, strategy) -> None:
-        """Définit la stratégie de planification.
-        
-        Args:
-            strategy: Instance de Strategy (DirectStrategy, AStarStrategy, etc.)
-        """
-        self.strategy = strategy
-    
-    def get_strategic_intention(self, state: np.ndarray, 
-                                obstacles: Optional[List[np.ndarray]] = None) -> np.ndarray:
-        """Calcule l'intention en utilisant la stratégie.
-        
-        La stratégie décompose le goal en sous-goals,
-        puis on calcule l'intention vers le sous-goal courant.
-        
-        Args:
-            state: État courant
-            obstacles: Obstacles connus (optionnel)
-            
-        Returns:
-            Intention vers le prochain sous-goal
-        """
-        # Si pas de stratégie, utiliser l'intention normale
-        if self.strategy is None:
-            return self.get_intention(state)
-        
-        # Si pas de goal, pas d'intention
-        current_goal = self.goals.current()
-        if current_goal is None:
-            return self.get_intention(state)
-        
-        # Position actuelle
-        pos = state[:3] if len(state) >= 3 else state
-        target = current_goal.target[:len(pos)]
-        
-        # Obtenir le prochain sous-goal de la stratégie
-        subgoal = self.strategy.get_next_subgoal(pos, target, obstacles)
-        
-        if subgoal is None:
-            # Stratégie bloquée
-            self.strategy.on_blocked(pos)
-            return np.zeros(self.dims, dtype=np.float32)
-        
-        # Calculer l'intention vers le sous-goal
-        direction = subgoal - pos
-        dist = np.linalg.norm(direction)
-        
-        if dist < 0.5:
-            # Sous-goal atteint
-            self.strategy.on_reached(pos)
-            return np.zeros(self.dims, dtype=np.float32)
-        
-        direction = direction / dist
-        speed = min(dist * 0.5, 5.0)  # Vitesse proportionnelle
-        
-        intention = np.zeros(self.dims, dtype=np.float32)
-        for i in range(min(len(direction), self.dims)):
-            intention[i] = direction[i] * speed
-        
-        return intention
-
     # === TORSEUR: Domaine et Commandes ===
     
     def set_command(self, name: str, value: np.ndarray) -> None:
