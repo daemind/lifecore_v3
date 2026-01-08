@@ -23,10 +23,40 @@ LifeCore Node
 └── Feedback  → Contraintes qui remontent des enfants
 ```
 
+## Applications Supply Chain
+
+LifeCore est particulièrement adapté à la gestion de supply chains:
+
+| Supply Chain | LifeCore |
+|--------------|----------|
+| Fournisseur → Entrepôt → Client | Hiérarchie Parent → Enfants |
+| Stock limité | Resources partagées |
+| Délais / SLA | Deadlines → urgence des Needs |
+| Contraintes transport | Laws (vitesse, capacité) |
+| Capacité machines | Capabilities |
+| Coordination équipes | Coherence entre frères |
+| Optimisation globale | Feedback récursif bottom-up |
+
+### Exemples inclus
+
+- **Amazon Fulfillment** - 200 robots, 50 stations packing, 5000 commandes
+- **Drone Delivery Fleet** - 270 drones, 9 zones, 1000 livraisons
+- **Gradio Dashboard** - Visualisation temps réel
+
+```bash
+# Lancer la simulation Amazon
+python examples/amazon_fulfillment_simulation.py
+
+# Lancer le dashboard drones
+python examples/drone_fleet_gradio.py
+```
+
 ## Installation
 
 ```bash
-pip install numpy
+pip install numpy pyyaml
+# Pour le dashboard:
+pip install gradio
 ```
 
 ## Usage
@@ -86,6 +116,25 @@ La **stratégie n'est pas programmée** - elle émerge de l'expérience:
 - Bonnes expériences → mémorisées
 - Situations similaires → comportement réutilisé
 - Optimisation globale via allocation de ressources
+
+## Ce qui manque (TODO)
+
+### Court terme
+- [ ] **Tests unitaires complets** - Couverture des modules
+- [ ] **Validation de config** - Schéma JSON pour valider les YAML
+- [ ] **Logging structuré** - Pour debug et monitoring
+
+### Moyen terme
+- [ ] **Apprentissage actif** - Améliorer la mémoire par renforcement
+- [ ] **Prédiction de demande** - Anticiper les besoins futurs
+- [ ] **Multi-objectif** - Pareto-optimisation (coût vs délai vs qualité)
+- [ ] **Événements asynchrones** - Pannes, retards, changements
+
+### Long terme
+- [ ] **Communication inter-sites** - Supply chain multi-localisation
+- [ ] **Intégration ERP** - Connexion aux systèmes existants
+- [ ] **Digital Twin** - Synchronisation avec le monde réel
+- [ ] **Explainability** - Pourquoi le système a pris cette décision
 
 ## License
 
