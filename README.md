@@ -1,45 +1,98 @@
 # LifeCore V3
 
-**Framework d'orchestration hiérarchique pour systèmes adaptatifs**
+**Framework d'orchestration hiérarchique pour pipelines de production**
 
 ## Ce que c'est
 
-LifeCore modélise des systèmes hiérarchiques où:
-- Chaque **node** a des besoins et des objectifs
-- Les **enfants** reportent leurs contraintes au parent
+LifeCore modélise des **pipelines de production dynamiques** (Gantt adaptatif) où:
+- Les **stages** ont des durées et des ressources paramétrables
+- Les **jobs** traversent le pipeline selon les dépendances
 - Les **ressources** sont partagées et allouées par priorité
-- La **stratégie émerge** de l'expérience (bonnes expériences → comportement optimisé)
+- La **stratégie émerge** de l'expérience (optimisation continue)
 
-## Concepts
+## Architecture
 
 ```
-LifeCore Node
-├── Goals     → Ce qu'on veut atteindre
-├── Needs     → Besoins homéostatiques → génèrent des intentions
-├── Memory    → Stocke les expériences, réutilise les bonnes
-├── Resources → Partagées, limitées, allouées par priorité
-├── Laws      → Contraintes externes (limites, zones)
-├── Children  → Sous-systèmes avec leurs propres besoins
-└── Feedback  → Contraintes qui remontent des enfants
+Pipeline (Gantt dynamique)
+├── Stages    → Étapes avec durée, ressources, variabilité
+├── Jobs      → Instances traversant le pipeline (priorité, deadline)
+├── Resources → Pools partagés (robots, stations, docks)
+├── Events    → Alertes, pannes, demand spikes
+└── Gantt     → Export données pour visualisation
+```
+
+## Module Pipeline
+
+Le cœur de LifeCore pour le scheduling de production:
+
+```python
+from lifecore.pipeline import Pipeline, Stage
+
+# Définir un pipeline de fulfillment
+pipe = Pipeline("fulfillment")
+
+# Stages paramétrables
+pipe.add_stage(Stage("picking", duration=5, resources={"robot": 1}))
+pipe.add_stage(Stage("transport", duration=3, resources={"robot": 1}))
+pipe.add_stage(Stage("packing", duration=2, resources={"station": 1}))
+pipe.add_stage(Stage("shipping", duration=1, resources={"dock": 1}))
+
+# Dépendances (DAG)
+pipe.add_dependency("picking", "transport")
+pipe.add_dependency("transport", "packing")
+pipe.add_dependency("packing", "shipping")
+
+# Capacités ressources
+pipe.set_resource("robot", capacity=50)
+pipe.set_resource("station", capacity=20)
+pipe.set_resource("dock", capacity=10)
+
+# Créer des jobs avec priorité et deadline
+for i in range(100):
+    pipe.create_job(priority=9, deadline=60)
+
+# Simuler
+pipe.run(duration=200)
+
+# Export Gantt
+gantt_data = pipe.export_gantt()
+print(pipe.get_stats())
+```
+
+**Résultat:**
+```
+Pipeline: fulfillment
+Completed: 100/100
+Avg time: 13.6 min
+Utilization: robot=15%, station=12%, dock=8%
+```
+
+## Pipelines prédefinis
+
+```python
+from lifecore.pipeline import create_fulfillment_pipeline, create_manufacturing_pipeline
+
+# Amazon-style fulfillment
+pipe = create_fulfillment_pipeline(robots=200, packing_stations=50, shipping_docks=10)
+
+# Manufacturing line
+pipe = create_manufacturing_pipeline(machines=10, workers=20, testers=3)
 ```
 
 ## Applications Supply Chain
 
-LifeCore est particulièrement adapté à la gestion de supply chains:
-
-| Supply Chain | LifeCore |
-|--------------|----------|
-| Fournisseur → Entrepôt → Client | Hiérarchie Parent → Enfants |
-| Stock limité | Resources partagées |
-| Délais / SLA | Deadlines → urgence des Needs |
-| Contraintes transport | Laws (vitesse, capacité) |
-| Capacité machines | Capabilities |
-| Coordination équipes | Coherence entre frères |
-| Optimisation globale | Feedback récursif bottom-up |
+| Supply Chain | LifeCore Pipeline |
+|--------------|-------------------|
+| Étapes process | Stages avec durée |
+| Capacité machines | ResourcePool |
+| Priorité commandes | Job.priority |
+| SLA / Délais | Job.deadline |
+| Dépendances | DAG de stages |
+| Visualisation | export_gantt() |
 
 ### Exemples inclus
 
-- **Amazon Fulfillment** - 200 robots, 50 stations packing, 5000 commandes
+- **Amazon Fulfillment** - 200 robots, 50 stations, 5000 commandes
 - **Drone Delivery Fleet** - 270 drones, 9 zones, 1000 livraisons
 - **Gradio Dashboard** - Visualisation temps réel
 
@@ -49,6 +102,24 @@ python examples/amazon_fulfillment_simulation.py
 
 # Lancer le dashboard drones
 python examples/drone_fleet_gradio.py
+
+# Tester le module Pipeline
+python lifecore/pipeline.py
+```
+
+## Système d'événements
+
+Gestion des situations dynamiques:
+
+```python
+from lifecore.event import EventBus, battery_low_alert, equipment_failure
+
+bus = EventBus()
+bus.subscribe_type(EventType.ALERT, handler)
+
+# Émettre des événements
+bus.emit(battery_low_alert("drone_42", level=0.15))
+bus.emit(equipment_failure("robot_7", "motor"))
 ```
 
 ## Installation
@@ -59,82 +130,52 @@ pip install numpy pyyaml
 pip install gradio
 ```
 
-## Usage
-
-```python
-from lifecore import LifeCore, Need, Goal
-import numpy as np
-
-# Hiérarchie: Controller → Motors
-controller = LifeCore(dims=4)
-motor_l = controller.spawn_child(domain_dims=[0, 1])
-motor_r = controller.spawn_child(domain_dims=[2, 3])
-
-# Les enfants ont des contraintes
-# Le parent reçoit le feedback
-intention = controller.get_recursive_intention(state)
-```
-
-## Configuration YAML/JSON
-
-```yaml
-name: "Drone Fleet"
-dims: 7
-resources:
-  - name: battery
-    capacity: 1000
-hierarchy:
-  name: controller
-  children:
-    - name: drone
-      count: 5
-```
-
-```python
-from lifecore.config import load_system
-system = load_system("config.yaml")
-```
-
 ## Modules
 
 | Module | Lignes | Description |
 |--------|--------|-------------|
-| core.py | ~430 | Agent fractal avec feedback récursif |
-| memory.py | 238 | Mémoire tensorielle, réutilisation directe |
-| resource.py | 218 | Ressources partagées, allocation par priorité |
+| **pipeline.py** | 570 | Pipeline scheduling / Gantt dynamique |
+| core.py | 430 | Agent fractal avec feedback récursif |
+| event.py | 363 | EventBus pour alertes et pannes |
+| memory.py | 238 | Mémoire tensorielle |
+| resource.py | 218 | Ressources partagées |
 | config.py | 338 | Loader YAML/JSON |
-| law.py | 185 | Contraintes (vitesse, zones, murs) |
-| capability.py | 180 | Limites internes (saturation douce) |
-| goal.py | 157 | Objectifs |
-| need.py | 112 | Besoins homéostatiques |
-| activation.py | 161 | Fonctions smooth (sigmoid) |
-| coherence.py | 189 | Couplage entre frères |
+| law.py | 185 | Contraintes (vitesse, zones) |
+
+**Total: ~6000 lignes**
+
+## Tests
+
+```bash
+# Lancer tous les tests (33 tests)
+python tests/test_all.py
+```
 
 ## Principe clé
 
-La **stratégie n'est pas programmée** - elle émerge de l'expérience:
-- Bonnes expériences → mémorisées
-- Situations similaires → comportement réutilisé
-- Optimisation globale via allocation de ressources
+**LifeCore = Gantt dynamique** qui s'adapte en temps réel:
+- Les jobs sont schedulés par priorité
+- Les ressources sont allouées dynamiquement
+- Les deadlines sont enforced
+- Les événements sont gérés asynchronement
 
-## Ce qui manque (TODO)
+## Roadmap
 
-### Court terme
-- [ ] **Tests unitaires complets** - Couverture des modules
-- [ ] **Validation de config** - Schéma JSON pour valider les YAML
-- [ ] **Logging structuré** - Pour debug et monitoring
+### ✅ Terminé
+- [x] Module Pipeline (Gantt dynamique)
+- [x] Système d'événements (alertes, pannes)
+- [x] Tests unitaires (33 tests)
+- [x] Simulations réalistes (Amazon, Drones)
 
-### Moyen terme
-- [ ] **Apprentissage actif** - Améliorer la mémoire par renforcement
-- [ ] **Prédiction de demande** - Anticiper les besoins futurs
-- [ ] **Multi-objectif** - Pareto-optimisation (coût vs délai vs qualité)
-- [ ] **Événements asynchrones** - Pannes, retards, changements
+### En cours
+- [ ] Visualisation Gantt (Gradio/HTML)
+- [ ] Prédiction de demande
+- [ ] Multi-objectif (coût vs délai vs qualité)
 
 ### Long terme
-- [ ] **Communication inter-sites** - Supply chain multi-localisation
-- [ ] **Intégration ERP** - Connexion aux systèmes existants
-- [ ] **Digital Twin** - Synchronisation avec le monde réel
-- [ ] **Explainability** - Pourquoi le système a pris cette décision
+- [ ] Digital Twin - Synchronisation temps réel
+- [ ] Intégration ERP
+- [ ] Explainability - Pourquoi cette décision
 
 ## License
 
