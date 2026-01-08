@@ -1,0 +1,364 @@
+# =====================================
+# DRONE DELIVERY FLEET - Configuration Exhaustive
+# =====================================
+#
+# Flotte de drones de livraison urbaine complète.
+# Inclut: dispatch, navigation, livraison, retour, recharge.
+
+name: "Prime Air Delivery Fleet - Paris Region"
+dims: 15
+
+dim_names:
+  - drone_id           # 0: Identifiant drone
+  - pos_x              # 1: Position X (km)
+  - pos_y              # 2: Position Y (km)
+  - pos_z              # 3: Altitude (m)
+  - vel_x              # 4: Vitesse X (m/s)
+  - vel_y              # 5: Vitesse Y (m/s)
+  - vel_z              # 6: Vitesse Z (m/s)
+  - battery_level      # 7: Batterie (%)
+  - payload_weight     # 8: Poids cargo (kg)
+  - delivery_deadline  # 9: Temps restant pour livrer (s)
+  - distance_to_dest   # 10: Distance destination (m)
+  - weather_factor     # 11: Condition météo (1=bon, 0.5=vent, 0.2=pluie)
+  - air_traffic        # 12: Densité traffic aérien local
+  - motor_temp         # 13: Température moteurs (°C)
+  - signal_strength    # 14: Force signal com (%)
+
+# === RESSOURCES GLOBALES ===
+resources:
+  # Drones actifs
+  - name: drone_fleet
+    capacity: 500
+    unit: drones
+    
+  # Créneaux de décollage par minute
+  - name: takeoff_slots
+    capacity: 20
+    unit: slots_per_minute
+    
+  # Capacité de recharge
+  - name: charging_capacity
+    capacity: 100
+    unit: simultaneous_charges
+    
+  # Bande passante communication
+  - name: comm_bandwidth
+    capacity: 10000
+    unit: mbps
+    
+  # Espace aérien (slots par km²)
+  - name: airspace_capacity
+    capacity: 50
+    unit: drones_per_km2
+
+# === LOIS / CONTRAINTES AVIATION ===
+laws:
+  # Limite de vitesse générale
+  - type: speed_limit
+    max: 20.0
+    dims: [4, 5]  # vel_x, vel_y
+    unit: m/s
+    
+  # Limite vitesse verticale
+  - type: speed_limit
+    max: 5.0
+    dims: [6]  # vel_z
+    unit: m/s
+    
+  # Zone de vol (Paris + banlieue)
+  - type: boundary
+    name: paris_region
+    min: [0, 0, 0, 30, -25, -25, -10, 0, 0, 0, 0, 0, 0, 0, 0]
+    max: [9999, 50, 50, 150, 25, 25, 10, 100, 5, 86400, 100000, 1, 1, 80, 100]
+    
+  # Zones interdites (aéroports, sites sensibles)
+  - type: no_fly_zone
+    zones:
+      # CDG
+      - center: [25, 48, 100]
+        radius: 8.0
+        name: charles_de_gaulle
+      # Orly
+      - center: [20, 5, 100]
+        radius: 6.0
+        name: orly
+      # Le Bourget
+      - center: [15, 45, 100]
+        radius: 4.0
+        name: le_bourget
+      # Élysée
+      - center: [22, 28, 100]
+        radius: 2.0
+        name: elysee
+      # Notre-Dame
+      - center: [23, 27, 100]
+        radius: 0.5
+        name: notre_dame
+        
+  # Anti-collision
+  - type: collision
+    min_distance: 30.0
+    entity_type: drone
+    
+  # Feux virtuels (corridors)
+  - type: traffic_light
+    position: [20, 25, 50]
+    dims: [4, 5]
+    cycle: 120.0
+    name: corridor_nord_sud
+    
+  # Murs virtuels (bâtiments hauts)
+  - type: wall
+    position: [22, 27, 0]
+    normal: [0, 0, 1]
+    dims: [3]  # altitude
+    min_altitude: 100
+    name: la_defense_towers
+
+# === HIÉRARCHIE DU SYSTÈME ===
+hierarchy:
+  name: fleet_command_center
+  resources: [drone_fleet, takeoff_slots, charging_capacity, comm_bandwidth, airspace_capacity]
+  
+  needs:
+    - type: throughput
+      name: maximize_deliveries
+      target_dim: 10  # distance_to_dest → 0 pour tous
+      urgency_fn: deadline_based
+      priority: 10.0
+      
+    - type: safety
+      name: zero_incidents
+      target_dim: 13  # motor_temp < critical
+      priority: 15.0
+      
+    - type: efficiency
+      name: minimize_fleet_energy
+      target_dim: 7  # battery global
+      priority: 5.0
+  
+  goals:
+    - name: daily_deliveries
+      description: "5000 livraisons par jour"
+      priority: 10.0
+      
+    - name: on_time_rate
+      description: "98% à l'heure"
+      priority: 9.0
+      
+    - name: safety_record
+      description: "Zéro incident"
+      priority: 15.0
+  
+  children:
+    # ===== DISPATCH CENTER =====
+    - name: dispatch_center
+      count: 1
+      domain: [0, 9, 10]  # Assignation et deadlines
+      resources: [takeoff_slots, comm_bandwidth]
+      
+      needs:
+        - type: optimization
+          name: optimal_assignment
+          dim: 10  # minimize total distances
+          priority: 8.0
+          
+        - type: balance
+          name: load_balancing
+          dim: 0  # distribute across drones
+          priority: 6.0
+
+    # ===== ZONES GÉOGRAPHIQUES =====
+    - name: geographic_zone
+      count: 9  # 9 zones couvrant Paris
+      domain: [1, 2, 12]  # Position et traffic
+      resources: [airspace_capacity]
+      resource_priority:
+        airspace_capacity: 7.0
+      
+      needs:
+        - type: capacity
+          name: manage_air_traffic
+          dim: 12
+          target: 0.7  # 70% capacity max
+          priority: 8.0
+      
+      children:
+        # Hub de zone
+        - name: zone_hub
+          count: 1
+          domain: [1, 2, 3]
+          resources: [charging_capacity]
+          
+          needs:
+            - type: availability
+              name: drones_ready
+              dim: 7  # battery
+              target: 100
+              priority: 6.0
+          
+          children:
+            # Stations de recharge
+            - name: charging_station
+              count: 5
+              domain: [7]  # battery
+              
+              capabilities:
+                - name: charge_rate
+                  dims: [7]
+                  max: 50.0  # 50% par 15 min
+                  efficiency: 0.9
+        
+        # Drones de la zone
+        - name: delivery_drone
+          count: 30
+          domain: [1, 2, 3, 4, 5, 6, 7, 8, 10]
+          resources: [airspace_capacity]
+          resource_priority:
+            airspace_capacity: 5.0
+          
+          needs:
+            - type: mission
+              name: complete_delivery
+              dim: 10  # distance_to_dest
+              target: 0
+              priority: 9.0
+              
+            - type: homeostatic
+              name: battery_safety
+              dim: 7
+              target: 30  # Retour si < 30%
+              priority: 12.0
+              
+            - type: safety
+              name: motor_cooling
+              dim: 13
+              target: 45  # Température optimale
+              priority: 10.0
+              
+            - type: reliability
+              name: maintain_signal
+              dim: 14
+              target: 80  # Signal fort
+              priority: 8.0
+          
+          capabilities:
+            - name: max_speed
+              dims: [4, 5]
+              max: 20.0
+              efficiency: 0.95
+              
+            - name: climb_rate
+              dims: [6]
+              max: 5.0
+              efficiency: 0.9
+              
+            - name: payload_capacity
+              dims: [8]
+              max: 2.5  # kg
+              efficiency: 1.0
+              
+            - name: battery_life
+              dims: [7]
+              max: 100.0
+              efficiency: 0.98
+          
+          children:
+            # Sous-systèmes du drone
+            - name: navigation_system
+              domain: [1, 2, 3, 10]  # Position et destination
+              
+              needs:
+                - type: precision
+                  name: accurate_position
+                  dim: 10
+                  target: 0
+                  priority: 9.0
+              
+              capabilities:
+                - name: gps_accuracy
+                  dims: [1, 2, 3]
+                  max: 0.5  # 50cm precision
+                  efficiency: 0.99
+            
+            - name: propulsion_system
+              domain: [4, 5, 6, 7, 13]  # Velocity, battery, temp
+              
+              needs:
+                - type: performance
+                  name: thrust_available
+                  dim: 4  # maintenir vitesse
+                  priority: 8.0
+                  
+                - type: thermal
+                  name: motor_temp_safe
+                  dim: 13
+                  target: 50
+                  priority: 10.0
+              
+              capabilities:
+                - name: motor_power
+                  dims: [4, 5, 6]
+                  max: 25.0
+                  efficiency: 0.85
+              
+              children:
+                - name: motor
+                  count: 4  # Quadcopter
+                  domain: [4, 5, 6]
+                  
+                  capabilities:
+                    - name: rpm_max
+                      dims: [4, 5, 6]
+                      max: 8000
+                      efficiency: 0.9
+                      
+                    - name: thermal_limit
+                      dims: [13]
+                      max: 80.0
+                      efficiency: 0.95
+            
+            - name: cargo_system
+              domain: [8]  # Payload
+              
+              needs:
+                - type: secure
+                  name: package_secure
+                  dim: 8
+                  priority: 9.0
+              
+              capabilities:
+                - name: grip_force
+                  dims: [8]
+                  max: 5.0  # kg force
+                  efficiency: 0.95
+            
+            - name: communication_system
+              domain: [14]  # Signal
+              resources: [comm_bandwidth]
+              
+              needs:
+                - type: connectivity
+                  name: maintain_link
+                  dim: 14
+                  target: 70
+                  priority: 8.0
+              
+              capabilities:
+                - name: transmit_power
+                  dims: [14]
+                  max: 100.0
+                  efficiency: 0.9
+
+    # ===== MAINTENANCE =====
+    - name: maintenance_center
+      count: 1
+      domain: [13, 7]  # Temp et battery (diagnostics)
+      
+      needs:
+        - type: preventive
+          name: schedule_maintenance
+          dim: 13
+          target: 40  # Flaguer si temp élevée récurrente
+          priority: 7.0

@@ -1,0 +1,275 @@
+# =====================================
+# AMAZON FULFILLMENT CENTER - Configuration Exhaustive
+# =====================================
+#
+# Modélisation complète d'un centre de préparation de commandes.
+# Inclut: picking, packing, transport, expédition.
+
+name: "Amazon Fulfillment Center FC-PAR01"
+dims: 12
+
+dim_names:
+  - order_id           # 0: Identifiant commande
+  - priority           # 1: Priorité (Prime=10, Standard=5)
+  - location_x         # 2: Position X dans l'entrepôt
+  - location_y         # 3: Position Y
+  - location_z         # 4: Niveau (rack height)
+  - weight             # 5: Poids total kg
+  - volume             # 6: Volume cm³
+  - deadline           # 7: Temps restant avant deadline (secondes)
+  - status             # 8: 0=pending, 1=picking, 2=packing, 3=shipped
+  - robot_battery      # 9: Niveau batterie robot assigné
+  - items_remaining    # 10: Nb items restants à picker
+  - distance_to_pack   # 11: Distance jusqu'à zone packing
+
+# === RESSOURCES GLOBALES ===
+resources:
+  # Flotte de robots
+  - name: kiva_robots
+    capacity: 200
+    unit: robots
+    
+  # Postes de packing
+  - name: packing_stations
+    capacity: 50
+    unit: stations
+    
+  # Convoyeurs
+  - name: conveyor_bandwidth
+    capacity: 5000
+    unit: packages_per_hour
+    
+  # Personnel
+  - name: warehouse_staff
+    capacity: 150
+    unit: workers
+    
+  # Electricity
+  - name: power_grid
+    capacity: 2000
+    unit: kW
+    
+  # Charging stations
+  - name: charging_docks
+    capacity: 40
+    unit: docks
+
+# === LOIS / CONTRAINTES ===
+laws:
+  # Vitesse max des robots
+  - type: speed_limit
+    max: 2.0
+    dims: [2, 3]  # X, Y movement
+    unit: m/s
+    
+  # Zone de travail
+  - type: boundary
+    min: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    max: [999999, 10, 200, 100, 10, 50, 100000, 86400, 3, 100, 100, 300]
+    
+  # Zones de non-circulation (allées de maintenance)
+  - type: no_fly_zone
+    zones:
+      - center: [100, 50, 0]
+        radius: 5.0
+        name: maintenance_area_1
+      - center: [150, 50, 0]
+        radius: 5.0
+        name: maintenance_area_2
+        
+  # Anti-collision robots
+  - type: collision
+    min_distance: 1.5
+    entity_type: robot
+
+# === HIÉRARCHIE DU SYSTÈME ===
+hierarchy:
+  name: fulfillment_center_controller
+  resources: [kiva_robots, packing_stations, conveyor_bandwidth, power_grid]
+  
+  # Besoins globaux du centre
+  needs:
+    - type: throughput
+      name: process_orders
+      target_dim: 8  # status → tous à 3 (shipped)
+      urgency_fn: deadline_based
+      priority: 10.0
+      
+    - type: efficiency
+      name: minimize_energy
+      target_dim: 9  # robot_battery → pas de gaspillage
+      priority: 3.0
+  
+  goals:
+    - name: daily_target
+      description: "Traiter 50000 commandes par jour"
+      target: [0, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0]  # status=3
+      priority: 10.0
+      threshold: 0.95  # 95% des commandes
+  
+  children:
+    # ===== ZONES DE PICKING =====
+    - name: picking_zone
+      count: 4
+      domain: [2, 3, 4, 10]  # Position et items restants
+      resources: [kiva_robots]
+      resource_priority:
+        kiva_robots: 8.0
+      
+      needs:
+        - type: homeostatic
+          name: clear_pending_picks
+          dim: 10  # items_remaining
+          target: 0
+          priority: 8.0
+          
+        - type: efficiency
+          name: minimize_travel
+          dim: 11  # distance_to_pack
+          target: 0
+          priority: 2.0
+      
+      children:
+        # Groupe de racks
+        - name: rack_section
+          count: 20
+          domain: [2, 3, 4]  # Position 3D
+          
+          children:
+            # Robots individuels
+            - name: kiva_robot
+              count: 10
+              domain: [2, 3, 9]  # Position XY et batterie
+              resources: [charging_docks]
+              
+              capabilities:
+                - name: movement_speed
+                  dims: [2, 3]
+                  max: 2.0
+                  efficiency: 0.95
+                  
+                - name: lift_capacity
+                  dims: [5]
+                  max: 35.0  # 35kg max
+                  efficiency: 1.0
+                  
+                - name: battery_capacity
+                  dims: [9]
+                  max: 100.0
+                  efficiency: 0.98  # 2% perte par cycle
+              
+              needs:
+                - type: homeostatic
+                  name: maintain_battery
+                  dim: 9
+                  target: 80.0
+                  priority: 5.0
+                  
+                - type: task
+                  name: pick_items
+                  dim: 10
+                  target: 0
+                  priority: 7.0
+
+    # ===== ZONE DE PACKING =====
+    - name: packing_area
+      count: 1
+      domain: [5, 6, 8]  # Weight, volume, status
+      resources: [packing_stations, warehouse_staff]
+      resource_priority:
+        packing_stations: 9.0
+        warehouse_staff: 7.0
+      
+      needs:
+        - type: throughput
+          name: pack_all_orders
+          dim: 8  # status
+          target: 2  # packing complete
+          priority: 9.0
+          
+        - type: quality
+          name: correct_packaging
+          dim: 6  # volume → box size optimization
+          priority: 4.0
+      
+      children:
+        - name: packing_station
+          count: 50
+          domain: [5, 6]  # Weight, volume handled
+          
+          capabilities:
+            - name: packing_speed
+              dims: [8]  # status transition
+              max: 120.0  # 120 packages/hour
+              efficiency: 0.85
+              
+            - name: box_sizes
+              dims: [6]
+              max: 50000  # cm³
+              efficiency: 1.0
+          
+          needs:
+            - type: homeostatic
+              name: station_utilization
+              dim: 8
+              target: 2
+              priority: 6.0
+
+    # ===== SYSTÈME DE CONVOYEURS =====
+    - name: conveyor_system
+      count: 1
+      domain: [2, 3, 11]  # Position, distance
+      resources: [conveyor_bandwidth, power_grid]
+      
+      needs:
+        - type: throughput
+          name: move_packages
+          dim: 11  # distance_to_pack
+          target: 0
+          priority: 7.0
+          
+        - type: efficiency
+          name: minimize_jams
+          dim: 2  # éviter congestion X
+          priority: 4.0
+      
+      children:
+        - name: conveyor_segment
+          count: 30
+          domain: [2, 3]
+          
+          capabilities:
+            - name: belt_speed
+              dims: [2, 3]
+              max: 1.5  # m/s
+              efficiency: 0.9
+
+    # ===== EXPÉDITION =====
+    - name: shipping_dock
+      count: 10
+      domain: [7, 8]  # Deadline, status
+      resources: [warehouse_staff]
+      
+      needs:
+        - type: deadline
+          name: ship_before_cutoff
+          dim: 7  # deadline
+          target: 0
+          priority: 10.0
+          
+        - type: completion
+          name: all_shipped
+          dim: 8
+          target: 3
+          priority: 9.0
+      
+      children:
+        - name: loading_bay
+          count: 4
+          domain: [8]  # Final status
+          
+          capabilities:
+            - name: loading_rate
+              dims: [8]
+              max: 500.0  # packages/hour
+              efficiency: 0.9
