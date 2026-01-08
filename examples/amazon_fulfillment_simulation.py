@@ -247,7 +247,7 @@ class AmazonFulfillmentSimulation:
             # Priorité
             priority_type = np.random.choice(['prime', 'standard', 'economy'], p=[0.3, 0.5, 0.2])
             priority = {'prime': 9, 'standard': 5, 'economy': 2}[priority_type]
-            deadline = {'prime': 60, 'standard': 180, 'economy': 480}[priority_type]
+            deadline = {'prime': 120, 'standard': 300, 'economy': 600}[priority_type]  # More realistic
             
             # Items
             items = []
@@ -282,10 +282,10 @@ class AmazonFulfillmentSimulation:
     def _assign_picking_tasks(self):
         """Assigne les commandes aux robots."""
         available = sorted(self._get_available_orders(), 
-                          key=lambda o: -o.priority)[:100]  # Top 100
+                          key=lambda o: -o.priority)[:200]  # Top 200 (more to process)
         
         idle_robots = [r for r in self.robots.values() 
-                      if r.status == "idle" and r.battery > 20]
+                      if r.status == "idle" and r.battery > 15]  # Lower threshold
         
         for order in available:
             if not idle_robots:
@@ -357,12 +357,12 @@ class AmazonFulfillmentSimulation:
             robot.items_picked += 1
             self.stats['items_picked'] += 1
         else:
-            # Avancer (2 m/s = 0.12 km/min)
-            speed = min(2.0, dist)
+            # Avancer (5 m/s = 0.3 km/min) - robots rapides
+            speed = min(5.0, dist)
             robot.pos_x += (dx / dist) * speed
             robot.pos_y += (dy / dist) * speed
             robot.distance_traveled += speed
-            robot.battery -= 0.1 * speed
+            robot.battery -= 0.05 * speed  # Moins de consommation batterie
     
     def _update_transporting_robot(self, robot: KivaRobot):
         """Robot transporte vers zone packing."""
@@ -386,11 +386,11 @@ class AmazonFulfillmentSimulation:
             robot.current_order = None
             robot.status = "idle"
         else:
-            speed = min(2.0, dist)
+            speed = min(5.0, dist)  # Faster transport
             robot.pos_x += (dx / dist) * speed
             robot.pos_y += (dy / dist) * speed
             robot.distance_traveled += speed
-            robot.battery -= 0.15 * speed  # Plus lourd
+            robot.battery -= 0.08 * speed  # Moins de drain
     
     def _update_charging_robot(self, robot: KivaRobot):
         """Robot en charge."""
@@ -426,8 +426,8 @@ class AmazonFulfillmentSimulation:
             elif station.status == "packing":
                 order = self.orders.get(station.current_order)
                 if order:
-                    # Packing prend ~2 min par commande
-                    if np.random.random() < 0.5 * station.efficiency:
+                    # Packing prend ~1 min par commande (90% chance)
+                    if np.random.random() < 0.9 * station.efficiency:
                         order.status = OrderStatus.PACKED
                         station.orders_packed += 1
                         station.current_order = None
