@@ -141,6 +141,27 @@ class MuJoCoScene:
         return self.data.xpos[body_id].copy()
     
     @property
+    def ball_pos(self) -> np.ndarray:
+        """Get actual ball position from MuJoCo physics."""
+        body_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "ball")
+        if body_id >= 0:
+            return self.data.xpos[body_id].copy()
+        return self.objects["ball"]["pos"]
+    
+    @property
+    def glass_pos(self) -> np.ndarray:
+        """Get actual glass position from MuJoCo."""
+        body_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "glass")
+        if body_id >= 0:
+            return self.data.xpos[body_id].copy()
+        return self.objects["glass"]["pos"]
+    
+    def sync_objects(self):
+        """Sync simulated object positions with MuJoCo physics."""
+        self.objects["ball"]["pos"] = self.ball_pos.copy()
+        self.objects["glass"]["pos"] = self.glass_pos.copy()
+    
+    @property
     def gripper_is_holding(self) -> bool:
         return self.held_object is not None
     
@@ -164,7 +185,7 @@ class MuJoCoScene:
                 continue
             if not obj["held"]:
                 dist = np.linalg.norm(self.ee_pos - obj["pos"])
-                if dist < 0.08:
+                if dist < 0.12:  # 12cm pickup range
                     self.held_object = name
                     obj["held"] = True
                     break
@@ -188,40 +209,69 @@ class MuJoCoScene:
             
             mujoco.mj_step(self.model, self.data)
         
-        # Update held object position
+        # Sync object positions from MuJoCo physics
+        self.sync_objects()
+        
+        # Update held object position (attached to gripper)
         if self.held_object:
-            self.objects[self.held_object]["pos"] = self.ee_pos.copy()
+            # Move ball with gripper when holding
+            pass  # Ball physics handles this now
         
         if self.viewer and self.viewer.is_running():
             self.viewer.sync()
     
-    def move_to_position(self, target: np.ndarray, max_steps: int = 200) -> bool:
-        """Move end effector to target position using IK."""
-        for _ in range(max_steps):
+    def move_to_position(self, target: np.ndarray, max_steps: int = 300) -> bool:
+        """Move end effector to target position using IK.
+        
+        Uses damped least squares with iterative refinement.
+        """
+        # Get body ID for hand
+        body_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "hand")
+        if body_id < 0:
+            body_id = 7
+        
+        for step in range(max_steps):
             mujoco.mj_forward(self.model, self.data)
             
+            # Compute error
             error = target - self.ee_pos
-            if np.linalg.norm(error) < 0.03:
+            error_norm = np.linalg.norm(error)
+            
+            if error_norm < 0.02:  # 2cm tolerance
                 return True
             
-            # Simple Jacobian IK
-            body_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "hand")
-            if body_id < 0:
-                body_id = 7
-            
+            # Compute Jacobian
             jacp = np.zeros((3, self.model.nv))
             jacr = np.zeros((3, self.model.nv))
             mujoco.mj_jacBody(self.model, self.data, jacp, jacr, body_id)
             
+            # Use only first 7 joints (arm)
             J = jacp[:, :7]
-            damping = 0.01
-            JJT = J @ J.T + damping * np.eye(3)
-            dq = J.T @ np.linalg.solve(JJT, error * 0.5)
             
-            new_qpos = self.joint_positions + np.clip(dq, -0.1, 0.1)
+            # Damped least squares
+            damping = 0.05
+            JJT = J @ J.T + damping * np.eye(3)
+            
+            # Compute delta q - use larger gain for faster convergence
+            gain = min(1.0, error_norm * 5)  # Adaptive gain
+            dq = gain * J.T @ np.linalg.solve(JJT, error)
+            
+            # Limit joint velocity
+            dq = np.clip(dq, -0.2, 0.2)
+            
+            # Update joint targets
+            new_qpos = self.joint_positions + dq
+            new_qpos = np.clip(new_qpos, -2.9, 2.9)
             self.set_targets(new_qpos)
-            self.step(10)
+            
+            # Step physics and sync viewer
+            self.step(5)
+            
+            # Print progress occasionally
+            if step % 50 == 0:
+                print(f"  IK step {step}: error={error_norm:.3f}, EE={self.ee_pos.round(2)}")
         
+        print(f"  IK failed to converge: error={np.linalg.norm(target - self.ee_pos):.3f}")
         return False
     
     def is_ball_in_glass(self) -> bool:
@@ -335,7 +385,7 @@ class MuJoCoTaskLearner:
             obj = self.scene.objects.get(target_name)
             if obj:
                 target_pos = obj["pos"].copy()
-                target_pos[2] += 0.08  # Go above
+                target_pos[2] += 0.05  # Just above object
                 return self.scene.move_to_position(target_pos)
         
         return False
