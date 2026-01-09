@@ -86,15 +86,15 @@ class MuJoCoScene:
         self.kp = np.array([600, 600, 600, 600, 250, 150, 50])
         self.kd = np.array([50, 50, 50, 50, 30, 25, 15])
         
-        # Initial pose: arm extended forward, gripper pointing down
-        # This configuration worked - ball moved from initial to near glass
+        # Initial pose: arm extended forward, gripper above table
+        # Table is at z=0.22, so gripper needs to be at z > 0.3
         self.home_qpos = np.array([
             0.0,      # shoulder pan (centered)
-            0.3,      # shoulder lift (slightly up for reach)
+            0.2,      # shoulder lift (slightly raised)
             0.0,      # upper arm roll
-            -2.0,     # elbow (bent forward and down)
+            -1.5,     # elbow (less bent to keep higher)
             0.0,      # forearm roll
-            1.8,      # wrist pitch (gripper pointing down)
+            1.5,      # wrist pitch
             0.785     # wrist roll
         ])
         self.target_qpos = self.home_qpos.copy()
