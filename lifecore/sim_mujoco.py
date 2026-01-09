@@ -88,32 +88,32 @@ UR5_MJCF = """
               <inertial pos="0 0 0" mass="0.2" diaginertia="0.001 0.001 0.001"/>
               
               <!-- Joint 5: Wrist 2 -->
-              <body name="link5" pos="0 0 0.08">
+              <body name="link5" pos="0 0 0.05">
                 <joint name="joint5" type="hinge" axis="0 1 0" range="-3.14 3.14"/>
-                <geom name="link5_geom" type="cylinder" size="0.025 0.03" rgba="0.4 0.4 0.4 1"/>
-                <inertial pos="0 0 0" mass="0.1" diaginertia="0.0005 0.0005 0.0005"/>
+                <geom name="link5_geom" type="cylinder" size="0.02 0.02" rgba="0.4 0.4 0.4 1"/>
+                <inertial pos="0 0 0" mass="0.1" diaginertia="0.0003 0.0003 0.0003"/>
                 
-                <!-- Joint 6: Wrist 3 (tool) -->
-                <body name="link6" pos="0 0 0.06">
+                <!-- Joint 6: Wrist 3 (tool) - gripper points along -Z -->
+                <body name="link6" pos="0 0 0.04">
                   <joint name="joint6" type="hinge" axis="0 0 1" range="-3.14 3.14"/>
-                  <geom name="gripper_base" type="box" size="0.03 0.02 0.01" rgba="0.2 0.2 0.2 1"/>
-                  <inertial pos="0 0 0" mass="0.1" diaginertia="0.0003 0.0003 0.0003"/>
+                  <geom name="gripper_base" type="box" size="0.02 0.015 0.01" rgba="0.2 0.2 0.2 1"/>
+                  <inertial pos="0 0 0" mass="0.05" diaginertia="0.0001 0.0001 0.0001"/>
                   
-                  <!-- End effector site -->
-                  <site name="end_effector" pos="0 0 0.02" size="0.01" rgba="1 0 0 1"/>
+                  <!-- End effector site - at gripper tip (pointing -Z) -->
+                  <site name="end_effector" pos="0 0 -0.04" size="0.008" rgba="1 0 0 1"/>
                   
-                  <!-- Gripper finger left -->
-                  <body name="finger_left" pos="0 -0.02 0.02">
-                    <joint name="finger_left_joint" type="slide" axis="0 1 0" range="-0.02 0.02"/>
-                    <geom name="finger_left_geom" type="box" size="0.01 0.005 0.02" rgba="0.3 0.3 0.3 1"/>
-                    <inertial pos="0 0 0" mass="0.02" diaginertia="0.00001 0.00001 0.00001"/>
+                  <!-- Gripper fingers pointing down (-Z direction) -->
+                  <body name="finger_left" pos="0 -0.015 -0.02">
+                    <joint name="finger_left_joint" type="slide" axis="0 1 0" range="-0.015 0.015"/>
+                    <geom name="finger_left_geom" type="box" size="0.008 0.004 0.02" rgba="0.3 0.3 0.3 1"/>
+                    <inertial pos="0 0 0" mass="0.01" diaginertia="0.00001 0.00001 0.00001"/>
                   </body>
                   
                   <!-- Gripper finger right -->
-                  <body name="finger_right" pos="0 0.02 0.02">
-                    <joint name="finger_right_joint" type="slide" axis="0 -1 0" range="-0.02 0.02"/>
-                    <geom name="finger_right_geom" type="box" size="0.01 0.005 0.02" rgba="0.3 0.3 0.3 1"/>
-                    <inertial pos="0 0 0" mass="0.02" diaginertia="0.00001 0.00001 0.00001"/>
+                  <body name="finger_right" pos="0 0.015 -0.02">
+                    <joint name="finger_right_joint" type="slide" axis="0 -1 0" range="-0.015 0.015"/>
+                    <geom name="finger_right_geom" type="box" size="0.008 0.004 0.02" rgba="0.3 0.3 0.3 1"/>
+                    <inertial pos="0 0 0" mass="0.01" diaginertia="0.00001 0.00001 0.00001"/>
                   </body>
                 </body>
               </body>
