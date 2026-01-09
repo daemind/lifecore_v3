@@ -87,36 +87,7 @@ UR5_MJCF = """
               <geom name="link4_geom" type="cylinder" size="0.03 0.04" rgba="0.4 0.4 0.4 1"/>
               <inertial pos="0 0 0" mass="0.2" diaginertia="0.001 0.001 0.001"/>
               
-              <!-- Joint 5: Wrist 2 -->
-              <body name="link5" pos="0 0 0.05">
-                <joint name="joint5" type="hinge" axis="0 1 0" range="-3.14 3.14"/>
-                <geom name="link5_geom" type="cylinder" size="0.02 0.02" rgba="0.4 0.4 0.4 1"/>
-                <inertial pos="0 0 0" mass="0.1" diaginertia="0.0003 0.0003 0.0003"/>
-                
-                <!-- Joint 6: Wrist 3 (tool) - gripper points along -Z -->
-                <body name="link6" pos="0 0 0.04">
-                  <joint name="joint6" type="hinge" axis="0 0 1" range="-3.14 3.14"/>
-                  <geom name="gripper_base" type="box" size="0.02 0.015 0.01" rgba="0.2 0.2 0.2 1"/>
-                  <inertial pos="0 0 0" mass="0.05" diaginertia="0.0001 0.0001 0.0001"/>
-                  
-                  <!-- End effector site - at gripper tip (pointing -Z) -->
-                  <site name="end_effector" pos="0 0 -0.04" size="0.008" rgba="1 0 0 1"/>
-                  
-                  <!-- Gripper fingers pointing down (-Z direction) -->
-                  <body name="finger_left" pos="0 -0.015 -0.02">
-                    <joint name="finger_left_joint" type="slide" axis="0 1 0" range="-0.015 0.015"/>
-                    <geom name="finger_left_geom" type="box" size="0.008 0.004 0.02" rgba="0.3 0.3 0.3 1"/>
-                    <inertial pos="0 0 0" mass="0.01" diaginertia="0.00001 0.00001 0.00001"/>
-                  </body>
-                  
-                  <!-- Gripper finger right -->
-                  <body name="finger_right" pos="0 0.015 -0.02">
-                    <joint name="finger_right_joint" type="slide" axis="0 -1 0" range="-0.015 0.015"/>
-                    <geom name="finger_right_geom" type="box" size="0.008 0.004 0.02" rgba="0.3 0.3 0.3 1"/>
-                    <inertial pos="0 0 0" mass="0.01" diaginertia="0.00001 0.00001 0.00001"/>
-                  </body>
-                </body>
-              </body>
+              <!-- Joint 5: Wrist 2 -->\n              <body name=\"link5\" pos=\"0 0 0.05\">\n                <joint name=\"joint5\" type=\"hinge\" axis=\"0 1 0\" range=\"-3.14 3.14\"/>\n                <geom name=\"link5_geom\" type=\"cylinder\" size=\"0.02 0.02\" rgba=\"0.4 0.4 0.4 1\"/>\n                <inertial pos=\"0 0 0\" mass=\"0.1\" diaginertia=\"0.0003 0.0003 0.0003\"/>\n                \n                <!-- Joint 6: Wrist 3 (tool) - gripper rotated to point down -->\n                <body name=\"link6\" pos=\"0 0 0.04\" euler=\"3.14159 0 0\">\n                  <joint name=\"joint6\" type=\"hinge\" axis=\"0 0 1\" range=\"-3.14 3.14\"/>\n                  <geom name=\"gripper_base\" type=\"box\" size=\"0.02 0.015 0.01\" rgba=\"0.2 0.2 0.2 1\"/>\n                  <inertial pos=\"0 0 0\" mass=\"0.05\" diaginertia=\"0.0001 0.0001 0.0001\"/>\n                  \n                  <!-- End effector site - at gripper tip -->\n                  <site name=\"end_effector\" pos=\"0 0 0.04\" size=\"0.008\" rgba=\"1 0 0 1\"/>\n                  \n                  <!-- Gripper fingers -->\n                  <body name=\"finger_left\" pos=\"0 -0.015 0.02\">\n                    <joint name=\"finger_left_joint\" type=\"slide\" axis=\"0 1 0\" range=\"-0.015 0.015\"/>\n                    <geom name=\"finger_left_geom\" type=\"box\" size=\"0.008 0.004 0.02\" rgba=\"0.3 0.3 0.3 1\"/>\n                    <inertial pos=\"0 0 0\" mass=\"0.01\" diaginertia=\"0.00001 0.00001 0.00001\"/>\n                  </body>\n                  \n                  <body name=\"finger_right\" pos=\"0 0.015 0.02\">\n                    <joint name=\"finger_right_joint\" type=\"slide\" axis=\"0 -1 0\" range=\"-0.015 0.015\"/>\n                    <geom name=\"finger_right_geom\" type=\"box\" size=\"0.008 0.004 0.02\" rgba=\"0.3 0.3 0.3 1\"/>\n                    <inertial pos=\"0 0 0\" mass=\"0.01\" diaginertia=\"0.00001 0.00001 0.00001\"/>\n                  </body>\n                </body>\n              </body>
             </body>
           </body>
         </body>
