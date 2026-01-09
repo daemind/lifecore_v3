@@ -71,7 +71,7 @@ class MuJoCoScene:
         panda_dir = os.path.join(base_dir, "models", "franka_emika_panda")
         
         # Use panda.xml directly (it has scene already)
-        model_path = os.path.join(panda_dir, "panda.xml")
+        model_path = os.path.join(panda_dir, "pick_place_scene.xml")
         self.model = mujoco.MjModel.from_xml_path(model_path)
         self.data = mujoco.MjData(self.model)
         
