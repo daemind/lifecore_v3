@@ -68,21 +68,21 @@ UR5_MJCF = """
         <inertial pos="0 0 0.1" mass="0.5" diaginertia="0.005 0.005 0.003"/>
         
         <!-- Joint 2: Shoulder -->
-        <body name="link2" pos="0 0 0.2">
+        <body name="link2" pos="0 0 0.1">
           <joint name="joint2" type="hinge" axis="0 1 0" range="-3.14 3.14"/>
-          <geom name="link2_geom" type="capsule" size="0.04" fromto="0 0 0 0.4 0 0" 
+          <geom name="link2_geom" type="capsule" size="0.03" fromto="0 0 0 0.2 0 0" 
                 rgba="0.6 0.3 0.2 1"/>
-          <inertial pos="0.2 0 0" mass="0.4" diaginertia="0.004 0.004 0.002"/>
+          <inertial pos="0.1 0 0" mass="0.3" diaginertia="0.002 0.002 0.001"/>
           
           <!-- Joint 3: Elbow -->
-          <body name="link3" pos="0.4 0 0">
+          <body name="link3" pos="0.2 0 0">
             <joint name="joint3" type="hinge" axis="0 1 0" range="-3.14 3.14"/>
-            <geom name="link3_geom" type="capsule" size="0.035" fromto="0 0 0 0.3 0 0" 
+            <geom name="link3_geom" type="capsule" size="0.025" fromto="0 0 0 0.15 0 0" 
                   rgba="0.6 0.3 0.2 1"/>
-            <inertial pos="0.15 0 0" mass="0.3" diaginertia="0.003 0.003 0.001"/>
+            <inertial pos="0.075 0 0" mass="0.2" diaginertia="0.001 0.001 0.0005"/>
             
             <!-- Joint 4: Wrist 1 -->
-            <body name="link4" pos="0.3 0 0">
+            <body name="link4" pos="0.15 0 0">
               <joint name="joint4" type="hinge" axis="0 0 1" range="-3.14 3.14"/>
               <geom name="link4_geom" type="cylinder" size="0.03 0.04" rgba="0.4 0.4 0.4 1"/>
               <inertial pos="0 0 0" mass="0.2" diaginertia="0.001 0.001 0.001"/>
@@ -124,15 +124,15 @@ UR5_MJCF = """
     </body>
     
     <!-- Ball to pick up -->
-    <body name="ball" pos="0.4 0.2 0.45">
+    <body name="ball" pos="0.25 0.1 0.45">
       <freejoint name="ball_free"/>
-      <geom name="ball_geom" type="sphere" size="0.025" rgba="1 0.2 0.2 1" mass="0.05"/>
+      <geom name="ball_geom" type="sphere" size="0.02" rgba="1 0.2 0.2 1" mass="0.03"/>
     </body>
     
     <!-- Glass (container) -->
-    <body name="glass" pos="0.4 -0.2 0.42">
-      <geom name="glass_bottom" type="cylinder" size="0.04 0.005" rgba="0.8 0.8 1 0.5"/>
-      <geom name="glass_wall" type="cylinder" size="0.04 0.05" pos="0 0 0.025" 
+    <body name="glass" pos="0.25 -0.1 0.42">
+      <geom name="glass_bottom" type="cylinder" size="0.03 0.005" rgba="0.8 0.8 1 0.5"/>
+      <geom name="glass_wall" type="cylinder" size="0.03 0.04" pos="0 0 0.02" 
             rgba="0.8 0.8 1 0.3" contype="0"/>
     </body>
   </worldbody>
@@ -287,11 +287,12 @@ class MuJoCoArm:
         # Extraire seulement les 6 premiers DOFs (les joints du bras)
         return jacp[:, :6]
     
-    def move_to_cartesian(self, target_pos: np.ndarray, max_iter: int = 50, 
+    def move_to_cartesian(self, target_pos: np.ndarray, max_iter: int = 100, 
                           tolerance: float = 0.02) -> bool:
-        """Mouvement vers une position cartésienne avec IK propre.
+        """Mouvement vers une position cartésienne avec IK itératif.
         
-        Utilise le Jacobien natif de MuJoCo pour le calcul.
+        Itère en accumulant les corrections jusqu'à convergence.
+        Attend que les joints atteignent leurs cibles avant la prochaine correction.
         """
         for iteration in range(max_iter):
             # Forward pour mettre à jour les positions
@@ -307,22 +308,29 @@ class MuJoCoArm:
             # Calculer le Jacobien
             J = self.compute_jacobian()
             
-            # Résoudre IK avec damped pseudo-inverse
-            damping = 0.05
+            # Résoudre IK avec damped least squares
+            damping = 0.01
             JJT = J @ J.T + damping * np.eye(3)
             dq = J.T @ np.linalg.solve(JJT, error)
             
-            # Appliquer avec un gain
-            step_size = min(0.3, error_norm)
-            new_qpos = self.target_qpos + step_size * dq
+            # Limiter le pas pour éviter les grands mouvements
+            dq_norm = np.linalg.norm(dq)
+            max_step = 0.1  # rad
+            if dq_norm > max_step:
+                dq = dq * (max_step / dq_norm)
             
-            # Clamp aux limites
+            # Accumuler la correction (NE PAS repartir de zéro)
+            new_qpos = self.joint_positions + dq
             new_qpos = np.clip(new_qpos, -np.pi, np.pi)
             
             self.set_joint_targets(new_qpos)
             
-            # Step la simulation pour appliquer le contrôle
-            self.step(20)
+            # Attendre que les joints convergent vers les cibles
+            for _ in range(50):
+                self.step(5)
+                joint_error = np.linalg.norm(self.joint_positions - self.target_qpos)
+                if joint_error < 0.05:  # Joints assez proches
+                    break
         
         return False
     
