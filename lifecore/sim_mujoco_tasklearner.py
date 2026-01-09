@@ -86,19 +86,34 @@ class MuJoCoScene:
         self.kp = np.array([600, 600, 600, 600, 250, 150, 50])
         self.kd = np.array([50, 50, 50, 50, 30, 25, 15])
         
-        # Home position
-        self.home_qpos = np.array([0, -0.785, 0, -2.356, 0, 1.571, 0.785])
+        # Initial pose: arm extended forward, gripper pointing down
+        # This configuration worked - ball moved from initial to near glass
+        self.home_qpos = np.array([
+            0.0,      # shoulder pan (centered)
+            0.3,      # shoulder lift (slightly up for reach)
+            0.0,      # upper arm roll
+            -2.0,     # elbow (bent forward and down)
+            0.0,      # forearm roll
+            1.8,      # wrist pitch (gripper pointing down)
+            0.785     # wrist roll
+        ])
         self.target_qpos = self.home_qpos.copy()
         self.gripper_open = True
         
+        # Set initial position
+        for i, q in enumerate(self.home_qpos):
+            self.data.qpos[i] = q
+        mujoco.mj_forward(self.model, self.data)
+        
         # Simulated objects (since we can't easily add freejoint bodies)
         self.objects = {
-            "ball": {"pos": np.array([0.5, 0.15, 0.25]), "held": False, "size": 0.025},
+            "ball": {"pos": np.array([0.5, 0.15, 0.27]), "held": False, "size": 0.025},
             "glass": {"pos": np.array([0.5, -0.15, 0.22]), "is_container": True}
         }
         self.held_object = None
         
         print(f"MuJoCoScene initialized with {self.model.njnt} joints")
+        print(f"Initial EE position: {self.ee_pos.round(3)}")
     
     def start_viewer(self):
         if self.visualize and self.viewer is None:
@@ -165,12 +180,11 @@ class MuJoCoScene:
             for i in range(min(7, self.model.nu)):
                 self.data.ctrl[i] = ctrl[i]
             
-            # Gripper
-            grip_ctrl = 0.04 if self.gripper_open else 0.0
+            # Gripper: actuator index 7, range [0, 255]
+            # High value = open, low value = closed
+            grip_ctrl = 255.0 if self.gripper_open else 0.0
             if self.model.nu > 7:
-                self.data.ctrl[7] = grip_ctrl * 100
-            if self.model.nu > 8:
-                self.data.ctrl[8] = grip_ctrl * 100
+                self.data.ctrl[7] = grip_ctrl
             
             mujoco.mj_step(self.model, self.data)
         
