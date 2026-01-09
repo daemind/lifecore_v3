@@ -183,9 +183,9 @@ class MuJoCoArm:
         self.actuator_ids = list(range(6))  # Motors 0-5 for joints
         self.gripper_actuator_ids = [6, 7]  # Motors 6-7 for gripper
         
-        # Control gains
-        self.kp = 50.0  # Position gain
-        self.kd = 5.0   # Velocity gain
+        # Control gains (higher for faster response)
+        self.kp = 200.0  # Position gain
+        self.kd = 20.0   # Velocity gain
         
         # Target positions
         self.target_qpos = np.zeros(6)
@@ -251,8 +251,8 @@ class MuJoCoArm:
             error = self.target_qpos - qpos
             ctrl = self.kp * error - self.kd * qvel
             
-            # Normaliser les contrôles [-1, 1]
-            ctrl = np.clip(ctrl / 50.0, -1, 1)
+            # Normaliser les contrôles [-1, 1] basé sur le gain
+            ctrl = np.clip(ctrl / self.kp, -1, 1)
             
             for i, actuator_id in enumerate(self.actuator_ids):
                 self.data.ctrl[actuator_id] = ctrl[i]
@@ -270,43 +270,59 @@ class MuJoCoArm:
         if self.viewer:
             self.viewer.sync()
     
-    def move_to_cartesian(self, target_pos: np.ndarray, max_iter: int = 100) -> bool:
-        """Mouvement vers une position cartésienne (IK itératif simple)."""
-        # IK par Jacobien (simplifié)
-        for _ in range(max_iter):
+    def compute_jacobian(self) -> np.ndarray:
+        """Calcule le Jacobien via MuJoCo (sans altérer l'état)."""
+        site_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SITE, "end_effector")
+        
+        # Allouer les Jacobiens
+        jacp = np.zeros((3, self.model.nv))  # Position Jacobian
+        jacr = np.zeros((3, self.model.nv))  # Rotation Jacobian
+        
+        # Mettre à jour la cinématique forward
+        mujoco.mj_forward(self.model, self.data)
+        
+        # Calculer le Jacobien
+        mujoco.mj_jacSite(self.model, self.data, jacp, jacr, site_id)
+        
+        # Extraire seulement les 6 premiers DOFs (les joints du bras)
+        return jacp[:, :6]
+    
+    def move_to_cartesian(self, target_pos: np.ndarray, max_iter: int = 50, 
+                          tolerance: float = 0.02) -> bool:
+        """Mouvement vers une position cartésienne avec IK propre.
+        
+        Utilise le Jacobien natif de MuJoCo pour le calcul.
+        """
+        for iteration in range(max_iter):
+            # Forward pour mettre à jour les positions
+            mujoco.mj_forward(self.model, self.data)
+            
             current_pos = self.end_effector_pos
             error = target_pos - current_pos
+            error_norm = np.linalg.norm(error)
             
-            if np.linalg.norm(error) < 0.01:
+            if error_norm < tolerance:
                 return True
             
-            # Jacobien numérique
-            eps = 1e-4
-            J = np.zeros((3, 6))
-            for i in range(6):
-                qpos_plus = self.joint_positions.copy()
-                qpos_plus[i] += eps
-                
-                # Sauvegarder et modifier
-                old_qpos = self.joint_positions.copy()
-                self.set_joint_targets(qpos_plus)
-                self.step(1)
-                pos_plus = self.end_effector_pos
-                
-                # Restaurer
-                self.set_joint_targets(old_qpos)
-                self.step(1)
-                
-                J[:, i] = (pos_plus - current_pos) / eps
+            # Calculer le Jacobien
+            J = self.compute_jacobian()
             
-            # Pseudo-inverse avec damping
-            damping = 0.1
-            JTJ = J.T @ J + damping * np.eye(6)
-            dq = np.linalg.solve(JTJ, J.T @ error)
+            # Résoudre IK avec damped pseudo-inverse
+            damping = 0.05
+            JJT = J @ J.T + damping * np.eye(3)
+            dq = J.T @ np.linalg.solve(JJT, error)
             
-            new_targets = self.joint_positions + 0.5 * dq
-            self.set_joint_targets(new_targets)
-            self.step(5)
+            # Appliquer avec un gain
+            step_size = min(0.3, error_norm)
+            new_qpos = self.target_qpos + step_size * dq
+            
+            # Clamp aux limites
+            new_qpos = np.clip(new_qpos, -np.pi, np.pi)
+            
+            self.set_joint_targets(new_qpos)
+            
+            # Step la simulation pour appliquer le contrôle
+            self.step(20)
         
         return False
     
