@@ -105,10 +105,10 @@ class MuJoCoScene:
             self.data.qpos[i] = q
         mujoco.mj_forward(self.model, self.data)
         
-        # Simulated objects (since we can't easily add freejoint bodies)
+        # Simulated objects - raised for arm workspace
         self.objects = {
-            "ball": {"pos": np.array([0.5, 0.15, 0.27]), "held": False, "size": 0.025},
-            "glass": {"pos": np.array([0.5, -0.15, 0.22]), "is_container": True}
+            "ball": {"pos": np.array([0.5, 0.1, 0.4]), "held": False, "size": 0.025},
+            "glass": {"pos": np.array([0.5, -0.05, 0.35]), "is_container": True}
         }
         self.held_object = None
         
@@ -134,10 +134,16 @@ class MuJoCoScene:
     
     @property
     def ee_pos(self) -> np.ndarray:
-        """End effector position."""
+        """End effector position - fingertip (midpoint between fingers)."""
+        # Use fingertip, not wrist - fingers are ~5.7cm below hand
+        left_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "left_finger")
+        right_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "right_finger")
+        if left_id >= 0 and right_id >= 0:
+            return (self.data.xpos[left_id] + self.data.xpos[right_id]) / 2
+        # Fallback to hand
         body_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "hand")
         if body_id < 0:
-            body_id = 7  # Fallback to last link
+            body_id = 7
         return self.data.xpos[body_id].copy()
     
     @property
@@ -209,13 +215,24 @@ class MuJoCoScene:
             
             mujoco.mj_step(self.model, self.data)
         
+        # Physically move ball with gripper when held
+        if self.held_object == "ball":
+            ball_body_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "ball")
+            if ball_body_id >= 0:
+                # Ball has a freejoint, qpos starts at index 7 (after arm joints)
+                # Freejoint is: 3 pos + 4 quat = 7 values
+                # Find ball qpos start index
+                ball_joint_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, "ball_free")
+                if ball_joint_id >= 0:
+                    qpos_adr = self.model.jnt_qposadr[ball_joint_id]
+                    # Set ball position to gripper position (slightly below)
+                    self.data.qpos[qpos_adr:qpos_adr+3] = self.ee_pos - np.array([0, 0, 0.05])
+                    # Zero velocity
+                    qvel_adr = self.model.jnt_dofadr[ball_joint_id]
+                    self.data.qvel[qvel_adr:qvel_adr+6] = 0
+        
         # Sync object positions from MuJoCo physics
         self.sync_objects()
-        
-        # Update held object position (attached to gripper)
-        if self.held_object:
-            # Move ball with gripper when holding
-            pass  # Ball physics handles this now
         
         if self.viewer and self.viewer.is_running():
             self.viewer.sync()
@@ -225,8 +242,10 @@ class MuJoCoScene:
         
         Uses damped least squares with iterative refinement.
         """
-        # Get body ID for hand
-        body_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "hand")
+        # Get body ID for fingertip (use left_finger for Jacobian)
+        body_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "left_finger")
+        if body_id < 0:
+            body_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "hand")
         if body_id < 0:
             body_id = 7
         
