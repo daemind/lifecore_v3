@@ -37,6 +37,15 @@ from lifecore.pipeline import (
 def render_gantt_svg(pipeline: Pipeline, width: int = 800, height: int = 400) -> str:
     """Génère un SVG du diagramme Gantt."""
     
+    # Handle None pipeline
+    if pipeline is None:
+        return f"""<svg width="{width}" height="{height}" xmlns="http://www.w3.org/2000/svg">
+            <rect width="100%" height="100%" fill="#1a1a2e"/>
+            <text x="50%" y="50%" fill="#888" text-anchor="middle" font-size="20">
+                Create a pipeline to start
+            </text>
+        </svg>"""
+    
     gantt = pipeline.export_gantt(max_jobs=30)
     if not gantt:
         return f"""<svg width="{width}" height="{height}" xmlns="http://www.w3.org/2000/svg">
@@ -276,10 +285,7 @@ state = PipelineState()
 # === GRADIO INTERFACE ===
 
 def create_interface():
-    with gr.Blocks(title="Pipeline Visualizer", theme=gr.themes.Soft(
-        primary_hue="green",
-        neutral_hue="slate"
-    )) as demo:
+    with gr.Blocks(title="Pipeline Visualizer") as demo:
         
         gr.Markdown("""
         # 🏭 Pipeline Visualizer
