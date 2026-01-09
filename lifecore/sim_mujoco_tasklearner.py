@@ -105,10 +105,10 @@ class MuJoCoScene:
             self.data.qpos[i] = q
         mujoco.mj_forward(self.model, self.data)
         
-        # Simulated objects - raised for arm workspace
+        # Objects on table (table top at z=0.22)
         self.objects = {
-            "ball": {"pos": np.array([0.5, 0.1, 0.4]), "held": False, "size": 0.025},
-            "glass": {"pos": np.array([0.5, -0.05, 0.35]), "is_container": True}
+            "ball": {"pos": np.array([0.5, 0.1, 0.25]), "held": False, "size": 0.025},
+            "glass": {"pos": np.array([0.5, -0.1, 0.23]), "is_container": True}
         }
         self.held_object = None
         
@@ -215,21 +215,18 @@ class MuJoCoScene:
             
             mujoco.mj_step(self.model, self.data)
         
-        # Physically move ball with gripper when held
+        # Attach ball to gripper when held
         if self.held_object == "ball":
-            ball_body_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "ball")
-            if ball_body_id >= 0:
-                # Ball has a freejoint, qpos starts at index 7 (after arm joints)
-                # Freejoint is: 3 pos + 4 quat = 7 values
-                # Find ball qpos start index
-                ball_joint_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, "ball_free")
-                if ball_joint_id >= 0:
-                    qpos_adr = self.model.jnt_qposadr[ball_joint_id]
-                    # Set ball position to gripper position (slightly below)
-                    self.data.qpos[qpos_adr:qpos_adr+3] = self.ee_pos - np.array([0, 0, 0.05])
-                    # Zero velocity
-                    qvel_adr = self.model.jnt_dofadr[ball_joint_id]
-                    self.data.qvel[qvel_adr:qvel_adr+6] = 0
+            ball_joint_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, "ball_free")
+            if ball_joint_id >= 0:
+                qpos_adr = self.model.jnt_qposadr[ball_joint_id]
+                # Position ball at gripper (slightly below fingertips)
+                ball_pos = self.ee_pos.copy()
+                ball_pos[2] -= 0.03  # 3cm below fingertips
+                self.data.qpos[qpos_adr:qpos_adr+3] = ball_pos
+                # Zero ball velocity
+                qvel_adr = self.model.jnt_dofadr[ball_joint_id]
+                self.data.qvel[qvel_adr:qvel_adr+6] = 0
         
         # Sync object positions from MuJoCo physics
         self.sync_objects()
@@ -355,6 +352,10 @@ class MuJoCoTaskLearner:
             if not obj.get("held"):
                 actions.append({"type": "goto", "target": name})
         
+        # Add lift action when holding
+        if self.scene.gripper_is_holding:
+            actions.append({"type": "lift"})
+        
         return actions
     
     def score_action(self, action: Dict, state: np.ndarray) -> float:
@@ -373,15 +374,34 @@ class MuJoCoTaskLearner:
                 if dist < 0.1:
                     score += 8.0
         
-        # Phase 2: Holding - go to glass and drop
+        # Phase 2: Holding - lift first, then go to glass, then drop
         else:
-            if action["type"] == "goto" and action.get("target") == "glass":
-                score += 5.0
-            elif action["type"] == "open_gripper":
-                glass_pos = self.scene.objects["glass"]["pos"]
-                dist = np.linalg.norm(self.scene.ee_pos - glass_pos)
-                if dist < 0.1:
+            ee_height = self.scene.ee_pos[2]
+            glass_pos = self.scene.objects["glass"]["pos"]
+            ball_size = self.scene.objects["ball"].get("size", 0.025)
+            
+            # Compute heights relative to non-held objects only
+            non_held_heights = [obj["pos"][2] for name, obj in self.scene.objects.items() 
+                               if not obj.get("held")]
+            max_obj_height = max(non_held_heights) if non_held_heights else glass_pos[2]
+            safe_lift_height = max_obj_height + ball_size * 6  # 6x ball diameter clearance
+            
+            # XY distance to glass
+            dist_to_glass = np.linalg.norm(self.scene.ee_pos[:2] - glass_pos[:2])
+            
+            # Lift if not high enough (relative to objects)
+            if action["type"] == "lift" and ee_height < safe_lift_height:
+                score += 10.0  # Highest priority
+            # Once lifted, go to glass
+            elif action["type"] == "goto" and action.get("target") == "glass":
+                if ee_height >= safe_lift_height * 0.9:  # 90% of safe height = lifted
                     score += 8.0
+                else:
+                    score += 3.0
+            # Open gripper when above glass (within 3x ball size)
+            elif action["type"] == "open_gripper":
+                if dist_to_glass < ball_size * 3 and ee_height > glass_pos[2] + ball_size * 2:
+                    score += 12.0  # Drop when above glass
         
         # Add LifeCore influence
         intention = self.core.get_intention(state)
@@ -404,8 +424,20 @@ class MuJoCoTaskLearner:
             obj = self.scene.objects.get(target_name)
             if obj:
                 target_pos = obj["pos"].copy()
-                target_pos[2] += 0.05  # Just above object
+                # Approach height = object top + 2x object size
+                obj_size = obj.get("size", 0.025)
+                target_pos[2] += obj_size * 2
                 return self.scene.move_to_position(target_pos)
+        
+        elif action["type"] == "lift":
+            # Lift height = non-held object height + clearance
+            ball_size = self.scene.objects["ball"].get("size", 0.025)
+            non_held_heights = [obj["pos"][2] for name, obj in self.scene.objects.items() 
+                               if not obj.get("held")]
+            max_obj_height = max(non_held_heights) if non_held_heights else 0.3
+            lift_pos = self.scene.ee_pos.copy()
+            lift_pos[2] = max_obj_height + ball_size * 8  # Safe lift height
+            return self.scene.move_to_position(lift_pos)
         
         return False
     
